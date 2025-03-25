@@ -25,6 +25,7 @@ from langchain.prompts import PromptTemplate
 from urllib.parse import urlparse
 import requests
 from bs4 import BeautifulSoup
+import sqlite3
 from config import (
     GOOGLE_API_KEY,
     GEMINI_MODEL,
@@ -36,6 +37,8 @@ from config import (
     COLLECTION_NAME
 )
 from utils import save_chat_history, load_chat_history, format_chat_message
+import uuid
+import shutil
 
 # Load environment variables
 load_dotenv()
@@ -49,6 +52,180 @@ ALLOWED_EXTENSIONS = {'pdf', 'docx', 'xlsx', 'csv'}
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(INDEX_PERSIST_DIRECTORY, exist_ok=True)
 
+# Database initialization
+def init_db():
+    try:
+        print("Initializing database...")
+        conn = sqlite3.connect('documents.db')
+        c = conn.cursor()
+        
+        # Create agents table if it doesn't exist
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS agents
+            (agent_id TEXT PRIMARY KEY,
+             name TEXT NOT NULL,
+             chroma_collection TEXT NOT NULL,
+             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)
+        ''')
+        
+        # Create documents table with agent_id foreign key if it doesn't exist
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS documents
+            (doc_id TEXT PRIMARY KEY,
+             agent_id TEXT NOT NULL,
+             filename TEXT NOT NULL,
+             chunk_count INTEGER NOT NULL,
+             chroma_ids TEXT NOT NULL,
+             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+             FOREIGN KEY (agent_id) REFERENCES agents(agent_id))
+        ''')
+        
+        conn.commit()
+        conn.close()
+        print("Database initialized successfully")
+    except Exception as e:
+        print(f"Error initializing database: {str(e)}")
+        raise
+
+# Initialize database
+init_db()
+
+# Database helper functions
+def save_agent_to_db(agent_id, name, chroma_collection):
+    try:
+        conn = sqlite3.connect('documents.db')
+        c = conn.cursor()
+        
+        # Check if agent already exists
+        c.execute('SELECT * FROM agents WHERE agent_id = ?', (agent_id,))
+        existing_agent = c.fetchone()
+        
+        if existing_agent:
+            print(f"Updating existing agent: {agent_id}")
+            c.execute('''
+                UPDATE agents 
+                SET name = ?, chroma_collection = ?
+                WHERE agent_id = ?
+            ''', (name, chroma_collection, agent_id))
+        else:
+            print(f"Creating new agent: {agent_id}")
+            c.execute('''
+                INSERT INTO agents (agent_id, name, chroma_collection)
+                VALUES (?, ?, ?)
+            ''', (agent_id, name, chroma_collection))
+            
+        conn.commit()
+        conn.close()
+        print(f"Agent {agent_id} saved successfully")
+    except Exception as e:
+        print(f"Error saving agent to database: {str(e)}")
+        raise
+
+def get_agent_from_db(agent_id):
+    conn = sqlite3.connect('documents.db')
+    c = conn.cursor()
+    c.execute('SELECT * FROM agents WHERE agent_id = ?', (agent_id,))
+    agent = c.fetchone()
+    conn.close()
+    if agent:
+        return {
+            'agent_id': agent[0],
+            'name': agent[1],
+            'created_at': agent[2]
+        }
+    return None
+
+def save_document_to_db(doc_id, agent_id, filename, chunk_count, chroma_ids):
+    conn = sqlite3.connect('documents.db')
+    c = conn.cursor()
+    c.execute('''
+        INSERT OR REPLACE INTO documents (doc_id, agent_id, filename, chunk_count, chroma_ids)
+        VALUES (?, ?, ?, ?, ?)
+    ''', (doc_id, agent_id, filename, chunk_count, json.dumps(chroma_ids)))
+    conn.commit()
+    conn.close()
+
+def get_document_from_db(doc_id):
+    conn = sqlite3.connect('documents.db')
+    c = conn.cursor()
+    c.execute('''
+        SELECT d.*, a.name as agent_name 
+        FROM documents d 
+        JOIN agents a ON d.agent_id = a.agent_id 
+        WHERE d.doc_id = ?
+    ''', (doc_id,))
+    doc = c.fetchone()
+    conn.close()
+    if doc:
+        return {
+            'doc_id': doc[0],
+            'agent_id': doc[1],
+            'filename': doc[2],
+            'chunk_count': doc[3],
+            'chroma_ids': json.loads(doc[4]),
+            'created_at': doc[5],
+            'agent_name': doc[6]
+        }
+    return None
+
+def get_all_documents(agent_id=None):
+    conn = sqlite3.connect('documents.db')
+    c = conn.cursor()
+    try:
+        if agent_id:
+            print(f"Fetching documents for agent: {agent_id}")
+            c.execute('''
+                SELECT d.*, a.name as agent_name 
+                FROM documents d 
+                JOIN agents a ON d.agent_id = a.agent_id 
+                WHERE d.agent_id = ?
+            ''', (agent_id,))
+        else:
+            print("No agent ID provided, fetching all documents")
+            c.execute('''
+                SELECT d.*, a.name as agent_name 
+                FROM documents d 
+                JOIN agents a ON d.agent_id = a.agent_id
+            ''')
+        docs = c.fetchall()
+        print(f"Found {len(docs)} documents in database")
+        return [{
+            'doc_id': doc[0],
+            'agent_id': doc[1],
+            'filename': doc[2],
+            'chunk_count': doc[3],
+            'chroma_ids': json.loads(doc[4]),
+            'created_at': doc[5],
+            'agent_name': doc[6]
+        } for doc in docs]
+    except Exception as e:
+        print(f"Error in get_all_documents: {str(e)}")
+        raise
+    finally:
+        conn.close()
+
+def delete_document_from_db(doc_id):
+    conn = sqlite3.connect('documents.db')
+    c = conn.cursor()
+    c.execute('DELETE FROM documents WHERE doc_id = ?', (doc_id,))
+    conn.commit()
+    conn.close()
+
+def delete_agent_from_db(agent_id):
+    conn = sqlite3.connect('documents.db')
+    c = conn.cursor()
+    # First delete all documents associated with the agent
+    c.execute('DELETE FROM documents WHERE agent_id = ?', (agent_id,))
+    # Then delete the agent
+    c.execute('DELETE FROM agents WHERE agent_id = ?', (agent_id,))
+    conn.commit()
+    conn.close()
+
+# Global variables for document processing
+conversation_chain = None
+vector_store = None  # Initialize vector_store as None
+current_agent_id = None  # Track current agent
+
 # Initialize Gemini
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
 if not GOOGLE_API_KEY:
@@ -56,11 +233,6 @@ if not GOOGLE_API_KEY:
 LLAMA_PARSE_KEY = os.getenv('LLAMA_PARSE_KEY')
 if not LLAMA_PARSE_KEY:
     raise ValueError("LLAMA_PARSE_KEY environment variable is not set")
-
-# Global variables for document processing
-conversation_chain = None
-documents = {}  # Dictionary to store document information
-vector_store = None  # Initialize vector_store as None
 
 # Initialize embeddings
 embeddings = GoogleGenerativeAIEmbeddings(
@@ -129,7 +301,10 @@ def allowed_file(filename):
 
 def process_document(file_path, doc_id):
     """Process document and create vector store"""
-    global conversation_chain, documents, vector_store
+    global conversation_chain, vector_store, current_agent_id
+    
+    if not current_agent_id:
+        raise RuntimeError("No active agent. Please create an agent first.")
 
     # Load document based on file type
     if file_path.endswith('.pdf'):
@@ -161,32 +336,48 @@ def process_document(file_path, doc_id):
     langchain_docs = [
         Document(
             page_content=getattr(doc, 'text', ''),
-            metadata={"source": file_path, "doc_id": doc_id}
+            metadata={"source": file_path, "doc_id": doc_id, "agent_id": current_agent_id}
         )
         for doc in raw_docs if hasattr(doc, 'text') and doc.text
     ]
     splits = text_splitter.split_documents(langchain_docs)
 
-    # Store document information
-    documents[doc_id] = {
-        'filename': os.path.basename(file_path),
-        'chunks': splits,
-        'chunk_count': len(splits)
-    }
-
     # Add documents to Chroma store and get their IDs
     try:
-        ids = vector_store.add_documents(splits)
-        vector_store.persist()
-        # Store the ChromaDB IDs for this document
-        documents[doc_id]['chroma_ids'] = ids
+        # Get existing documents for this agent
+        existing_docs = get_all_documents(current_agent_id)
+        
+        # If this is the first document, create a new vector store
+        if not existing_docs:
+            print("First document for this agent, creating new vector store...")
+            vector_store = Chroma.from_documents(
+                documents=splits,
+                embedding=embeddings,
+                collection_name=f'agent_{current_agent_id}',
+                persist_directory=os.path.join('chroma_db', f'agent_{current_agent_id}')
+            )
+        else:
+            print("Adding document to existing vector store...")
+            # Add to existing vector store
+            ids = vector_store.add_documents(splits)
+            vector_store.persist()
+        
+        # Save document information to database
+        save_document_to_db(
+            doc_id=doc_id,
+            agent_id=current_agent_id,
+            filename=os.path.basename(file_path),
+            chunk_count=len(splits),
+            chroma_ids=ids if 'ids' in locals() else []
+        )
+        
+        # Update conversation chain with new retriever
+        print("Updating conversation chain with new documents...")
+        retriever = vector_store.as_retriever(search_kwargs={"k": RETRIEVER_K})
+        initialize_conversation_chain(retriever)
+        print("Conversation chain updated successfully")
     except Exception as e:
         raise RuntimeError(f"Failed to add documents to Chroma store: {str(e)}")
-
-    # Update conversation chain with new retriever
-    conversation_chain.retriever = vector_store.as_retriever(
-        search_kwargs={"k": RETRIEVER_K}
-    )
 
     return splits
 
@@ -202,7 +393,10 @@ def get_website_title(url):
 
 def process_url(url):
     """Process website URL and create document chunks"""
-    global conversation_chain, documents, vector_store
+    global conversation_chain, vector_store, current_agent_id
+    
+    if not current_agent_id:
+        raise RuntimeError("No active agent. Please create an agent first.")
 
     try:
         # Create a unique document ID
@@ -233,20 +427,19 @@ def process_url(url):
         if not splits:
             raise RuntimeError("No content chunks created from the website")
 
-        # Store document information
-        documents[doc_id] = {
-            'filename': f"{title} ({urlparse(url).netloc})",
-            'chunks': splits,
-            'chunk_count': len(splits),
-            'url': url
-        }
-
         # Add documents to Chroma store and get their IDs
         try:
             ids = vector_store.add_documents(splits)
             vector_store.persist()
-            # Store the ChromaDB IDs for this document
-            documents[doc_id]['chroma_ids'] = ids
+            
+            # Save document information to database
+            save_document_to_db(
+                doc_id=doc_id,
+                agent_id=current_agent_id,
+                filename=f"{title} ({urlparse(url).netloc})",
+                chunk_count=len(splits),
+                chroma_ids=ids
+            )
         except Exception as e:
             raise RuntimeError(f"Failed to add documents to Chroma store: {str(e)}")
 
@@ -261,9 +454,6 @@ def process_url(url):
         return doc_id, splits
 
     except Exception as e:
-        # Clean up if something went wrong
-        if doc_id in documents:
-            del documents[doc_id]
         raise RuntimeError(f"Error processing URL: {str(e)}")
 
 @app.route('/')
@@ -342,13 +532,14 @@ def chat():
         for doc in result['source_documents']:
             if 'page' in doc.metadata and 'doc_id' in doc.metadata:
                 doc_id = doc.metadata['doc_id']
-                doc_info = documents.get(doc_id, {})
-                sources.append({
-                    'doc_id': doc_id,
-                    'filename': doc_info.get('filename', 'Unknown'),
-                    'page': doc.metadata['page'],
-                    'text': doc.page_content[:200] + '...' if len(doc.page_content) > 200 else doc.page_content
-                })
+                doc_info = get_document_from_db(doc_id)
+                if doc_info:
+                    sources.append({
+                        'doc_id': doc_id,
+                        'filename': doc_info['filename'],
+                        'page': doc.metadata['page'],
+                        'text': doc.page_content[:200] + '...' if len(doc.page_content) > 200 else doc.page_content
+                    })
 
         return jsonify({
             'response': response,
@@ -359,44 +550,103 @@ def chat():
 
 @app.route('/delete_document', methods=['POST'])
 def delete_document():
-    global conversation_chain, documents, vector_store, memory
+    global conversation_chain, vector_store
     try:
         data = request.json
         doc_id = data.get('document_id')
 
-        if doc_id and doc_id in documents:
-            # Get the ChromaDB IDs for this document
-            chroma_ids = documents[doc_id].get('chroma_ids', [])
-            
-            # Delete document chunks from ChromaDB
-            try:
-                if chroma_ids:
-                    print(f"Deleting ChromaDB IDs for document {doc_id}: {chroma_ids}")
-                    vector_store.delete(ids=chroma_ids)
-                    vector_store.persist()
-            except Exception as e:
-                print(f"Error deleting from ChromaDB: {str(e)}")
+        if not doc_id:
+            return jsonify({'error': 'No document ID provided'}), 400
 
-            # Remove document from documents dictionary
-            del documents[doc_id]
-
-            # If no documents left, reset to dummy store
-            if not documents:
-                dummy_docs = [Document(page_content="Dummy document", metadata={"source": "dummy"})]
-                vector_store = Chroma.from_documents(
-                    documents=dummy_docs,
-                    embedding=embeddings,
-                    collection_name=COLLECTION_NAME,
-                    persist_directory=INDEX_PERSIST_DIRECTORY
-                )
-                vector_store.persist()
-                conversation_chain.retriever = vector_store.as_retriever(
-                    search_kwargs={"k": RETRIEVER_K}
-                )
-
-            return jsonify({'message': 'Document deleted successfully'})
-        else:
+        # Get document from database
+        doc = get_document_from_db(doc_id)
+        if not doc:
             return jsonify({'error': 'Document not found'}), 404
+
+        # Verify document belongs to current agent
+        if doc['agent_id'] != current_agent_id:
+            return jsonify({'error': 'Document does not belong to current agent'}), 403
+
+        # Delete from ChromaDB
+        try:
+            if doc['chroma_ids']:
+                print(f"Deleting ChromaDB IDs for document {doc_id}: {doc['chroma_ids']}")
+                vector_store.delete(ids=doc['chroma_ids'])
+                vector_store.persist()
+        except Exception as e:
+            print(f"Error deleting from ChromaDB: {str(e)}")
+            return jsonify({'error': f'Error deleting from ChromaDB: {str(e)}'}), 500
+
+        # Delete from database
+        delete_document_from_db(doc_id)
+
+        # If no documents left for this agent, reset to dummy store
+        if not get_all_documents(current_agent_id):
+            dummy_docs = [Document(page_content="Dummy document", metadata={"source": "dummy", "agent_id": current_agent_id})]
+            vector_store = Chroma.from_documents(
+                documents=dummy_docs,
+                embedding=embeddings,
+                collection_name=f'agent_{current_agent_id}',
+                persist_directory=os.path.join('chroma_db', f'agent_{current_agent_id}')
+            )
+            vector_store.persist()
+            conversation_chain.retriever = vector_store.as_retriever(
+                search_kwargs={"k": RETRIEVER_K}
+            )
+
+        return jsonify({'message': 'Document deleted successfully'})
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/delete_all_documents', methods=['POST'])
+def delete_all_documents():
+    global conversation_chain, vector_store, memory
+    try:
+        if not current_agent_id:
+            return jsonify({'error': 'No active agent'}), 400
+
+        # Get all documents for current agent
+        docs = get_all_documents(current_agent_id)
+        
+        # Delete all documents from ChromaDB
+        for doc in docs:
+            try:
+                if doc['chroma_ids']:
+                    print(f"Deleting ChromaDB IDs for document {doc['doc_id']}: {doc['chroma_ids']}")
+                    vector_store.delete(ids=doc['chroma_ids'])
+            except Exception as e:
+                print(f"Error deleting document {doc['doc_id']} from ChromaDB: {str(e)}")
+                continue
+
+        # Persist ChromaDB changes
+        vector_store.persist()
+
+        # Delete all documents from database for current agent
+        conn = sqlite3.connect('documents.db')
+        c = conn.cursor()
+        c.execute('DELETE FROM documents WHERE agent_id = ?', (current_agent_id,))
+        conn.commit()
+        conn.close()
+
+        # Reset to dummy store for this agent
+        dummy_docs = [Document(page_content="Dummy document", metadata={"source": "dummy", "agent_id": current_agent_id})]
+        vector_store = Chroma.from_documents(
+            documents=dummy_docs,
+            embedding=embeddings,
+            collection_name=f'agent_{current_agent_id}',
+            persist_directory=os.path.join('chroma_db', f'agent_{current_agent_id}')
+        )
+        vector_store.persist()
+        conversation_chain.retriever = vector_store.as_retriever(
+            search_kwargs={"k": RETRIEVER_K}
+        )
+
+        # Clear chat memory
+        print("Clearing chat memory after deleting all documents...")
+        memory.clear()
+
+        return jsonify({'message': 'All documents deleted successfully'})
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -404,21 +654,18 @@ def delete_document():
 @app.route('/list_documents', methods=['GET'])
 def list_documents():
     """Return list of all uploaded documents with their chunk information"""
-    doc_list = []
-    for doc_id, doc_info in documents.items():
-        doc_list.append({
-            'document_id': doc_id,
-            'filename': doc_info['filename'],
-            'chunk_count': doc_info['chunk_count'],
-            'chunks': [
-                {
-                    'id': f'{doc_id}_chunk_{i + 1}',
-                    'page': chunk.metadata.get('page', 'N/A')
-                }
-                for i, chunk in enumerate(doc_info['chunks'])
-            ]
-        })
-    return jsonify(doc_list)
+    try:
+        # Get documents for the current agent
+        docs = get_all_documents(current_agent_id)
+        print(f"Found {len(docs)} documents for agent {current_agent_id}")
+        return jsonify([{
+            'document_id': doc['doc_id'],
+            'filename': doc['filename'],
+            'chunk_count': doc['chunk_count']
+        } for doc in docs])
+    except Exception as e:
+        print(f"Error listing documents: {str(e)}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
@@ -447,6 +694,11 @@ def handle_url():
         # Process the URL
         doc_id, chunks = process_url(url)
 
+        # Get document info from database
+        doc_info = get_document_from_db(doc_id)
+        if not doc_info:
+            raise RuntimeError("Document not found in database")
+
         # Prepare chunk information
         chunk_info = []
         for i, chunk in enumerate(chunks):
@@ -458,13 +710,302 @@ def handle_url():
             })
 
         return jsonify({
-            'filename': documents[doc_id]['filename'],
+            'filename': doc_info['filename'],
             'document_id': doc_id,
             'chunk_count': len(chunks),
             'chunks': chunk_info
         })
 
     except Exception as e:
+        print(f"Error processing URL: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+def initialize_conversation_chain(retriever):
+    """Initialize or reinitialize the conversation chain with a new retriever"""
+    global conversation_chain
+    conversation_chain = ConversationalRetrievalChain.from_llm(
+        llm=llm,
+        retriever=retriever,
+        memory=memory,
+        return_source_documents=True,
+        verbose=True,
+        combine_docs_chain_kwargs={"prompt": PromptTemplate(
+            input_variables=["context", "question", "chat_history"],
+            template="""You are a helpful AI assistant that answers questions based on the provided context. 
+            Use the following pieces of context to answer the question at the end. 
+            If you don't know the answer, just say that you don't know, don't try to make up an answer.
+
+            Context: {context}
+
+            Chat History: {chat_history}
+
+            Question: {question}
+
+            Answer:"""
+        )}
+    )
+
+@app.route('/create_agent', methods=['POST'])
+def create_agent():
+    global current_agent_id, conversation_chain, vector_store
+    print("\n=== Starting Agent Creation Process ===")
+    try:
+        data = request.json
+        agent_name = data.get('name')
+        
+        if not agent_name:
+            print("Error: No agent name provided")
+            return jsonify({'error': 'Agent name is required'}), 400
+            
+        # Generate unique agent ID
+        agent_id = f'agent_{int(time.time())}'
+        
+        print(f"\n1. Creating agent with ID: {agent_id} and name: {agent_name}")
+        
+        # Save agent to database
+        try:
+            print("\n2. Database Operations:")
+            print("   - Connecting to database...")
+            conn = sqlite3.connect('documents.db')
+            c = conn.cursor()
+            print("   - Inserting agent into database...")
+            save_agent_to_db(agent_id, agent_name, f"agent_{agent_id}")
+            print("   ✓ Database operations completed successfully")
+        except Exception as db_error:
+            print(f"\n❌ Database error: {str(db_error)}")
+            return jsonify({'error': f'Database error: {str(db_error)}'}), 500
+            
+        current_agent_id = agent_id
+        print(f"\n3. Current agent ID set to: {current_agent_id}")
+
+        # Create new vector store for this agent
+        try:
+            print("\n4. Vector Store Operations:")
+            print(f"   - Using collection name: {f'agent_{agent_id}'}")
+            print(f"   - Using persist directory: {os.path.join('chroma_db', f'agent_{agent_id}')}")
+            
+            # Create dummy document with agent_id
+            dummy_docs = [Document(page_content="Dummy document", metadata={"source": "dummy", "agent_id": agent_id})]
+            print("   - Created dummy document")
+            
+            # Initialize vector store
+            print("   - Initializing ChromaDB vector store...")
+            vector_store = Chroma.from_documents(
+                documents=dummy_docs,
+                embedding=embeddings,
+                collection_name=f'agent_{agent_id}',
+                persist_directory=os.path.join('chroma_db', f'agent_{agent_id}')
+            )
+            print("   - Vector store initialized")
+            
+            # Persist the store
+            print("   - Persisting vector store...")
+            vector_store.persist()
+            print("   ✓ Vector store operations completed successfully")
+        except Exception as vector_error:
+            print(f"\n❌ Vector store error: {str(vector_error)}")
+            return jsonify({'error': f'Vector store error: {str(vector_error)}'}), 500
+
+        # Initialize conversation chain
+        try:
+            print("\n5. Conversation Chain Operations:")
+            print("   - Creating retriever...")
+            retriever = vector_store.as_retriever(search_kwargs={"k": RETRIEVER_K})
+            print("   - Initializing conversation chain...")
+            initialize_conversation_chain(retriever)
+            print("   ✓ Conversation chain operations completed successfully")
+        except Exception as chain_error:
+            print(f"\n❌ Conversation chain error: {str(chain_error)}")
+            return jsonify({'error': f'Conversation chain error: {str(chain_error)}'}), 500
+
+        # Clear chat memory for new agent
+        memory.clear()
+        
+        # Prepare success response
+        response_data = {
+            'message': 'Agent created successfully',
+            'agent_id': str(agent_id),
+            'name': str(agent_name)
+        }
+        
+        print("\n=== Agent Creation Process Completed Successfully ===\n")
+        return jsonify(response_data)
+        
+    except Exception as e:
+        print(f"\n❌ Error creating agent: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/list_agents', methods=['GET'])
+def list_agents():
+    """Return list of all agents with their documents"""
+    try:
+        conn = sqlite3.connect('documents.db')
+        c = conn.cursor()
+        
+        # Get all agents with their document counts
+        c.execute('''
+            SELECT a.agent_id, a.name, COUNT(d.doc_id) as document_count
+            FROM agents a
+            LEFT JOIN documents d ON a.agent_id = d.agent_id
+            GROUP BY a.agent_id, a.name
+            ORDER BY a.created_at DESC
+        ''')
+        
+        agents = c.fetchall()
+        result = []
+        
+        for agent in agents:
+            agent_id, name, doc_count = agent
+            # Get documents for this agent
+            c.execute('''
+                SELECT doc_id, filename, chunk_count
+                FROM documents
+                WHERE agent_id = ?
+            ''', (agent_id,))
+            documents = c.fetchall()
+            
+            result.append({
+                'agent_id': agent_id,
+                'name': name,
+                'document_count': doc_count,
+                'documents': [{
+                    'doc_id': doc[0],
+                    'filename': doc[1],
+                    'chunk_count': doc[2]
+                } for doc in documents]
+            })
+        
+        conn.close()
+        return jsonify(result)
+    except Exception as e:
+        print(f"Error listing agents: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/switch_agent', methods=['POST'])
+def switch_agent():
+    """Switch to a different agent"""
+    global current_agent_id, conversation_chain, vector_store, memory
+    try:
+        data = request.json
+        agent_id = data.get('agent_id')
+        
+        if not agent_id:
+            return jsonify({'error': 'Agent ID is required'}), 400
+            
+        # Get agent details
+        agent = get_agent_from_db(agent_id)
+        if not agent:
+            return jsonify({'error': 'Agent not found'}), 404
+            
+        # Update current agent
+        current_agent_id = agent_id
+        
+        # Clear chat memory
+        print("Clearing chat memory for new agent...")
+        memory.clear()
+        
+        # Update vector store for this agent
+        try:
+            # Create dummy document with agent_id
+            dummy_docs = [Document(page_content="Dummy document", metadata={"source": "dummy", "agent_id": agent_id})]
+            
+            # Initialize vector store
+            vector_store = Chroma.from_documents(
+                documents=dummy_docs,
+                embedding=embeddings,
+                collection_name=f'agent_{agent_id}',
+                persist_directory=os.path.join('chroma_db', f'agent_{agent_id}')
+            )
+            vector_store.persist()
+            
+            # Update conversation chain
+            conversation_chain.retriever = vector_store.as_retriever(
+                search_kwargs={"k": RETRIEVER_K}
+            )
+        except Exception as e:
+            print(f"Error updating vector store: {str(e)}")
+            return jsonify({'error': f'Error updating vector store: {str(e)}'}), 500
+            
+        return jsonify({
+            'message': 'Agent switched successfully',
+            'agent_id': agent_id,
+            'name': agent['name']
+        })
+    except Exception as e:
+        print(f"Error switching agent: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/delete_agent', methods=['POST'])
+def delete_agent():
+    """Delete an agent and all its associated data"""
+    global current_agent_id, conversation_chain, vector_store, memory
+    try:
+        data = request.json
+        agent_id = data.get('agent_id')
+        
+        if not agent_id:
+            return jsonify({'error': 'Agent ID is required'}), 400
+            
+        # Get agent details
+        agent = get_agent_from_db(agent_id)
+        if not agent:
+            return jsonify({'error': 'Agent not found'}), 404
+            
+        print(f"Deleting agent: {agent_id}")
+        
+        # If we're deleting the current agent, reset the global variables first
+        if current_agent_id == agent_id:
+            # Reset vector store
+            if vector_store:
+                try:
+                    vector_store._client.close()
+                except:
+                    pass
+            vector_store = None
+            current_agent_id = None
+            memory.clear()
+            
+            # Create a temporary dummy vector store and conversation chain
+            dummy_docs = [Document(page_content="Dummy document", metadata={"source": "dummy"})]
+            temp_vector_store = Chroma.from_documents(
+                documents=dummy_docs,
+                embedding=embeddings,
+                collection_name="temp_store",
+                persist_directory="temp_chroma"
+            )
+            initialize_conversation_chain(temp_vector_store.as_retriever(search_kwargs={"k": RETRIEVER_K}))
+            print("Reset global variables before deletion")
+        
+        # Delete agent's Chroma collection
+        try:
+            chroma_dir = os.path.join('chroma_db', f'agent_{agent_id}')
+            if os.path.exists(chroma_dir):
+                # Force close any open file handles
+                gc.collect()
+                time.sleep(1)
+                shutil.rmtree(chroma_dir, ignore_errors=True)
+                print(f"Deleted Chroma collection: {chroma_dir}")
+        except Exception as e:
+            print(f"Error deleting Chroma collection: {str(e)}")
+            # Continue with database deletion even if Chroma deletion fails
+            
+        # Delete agent and its documents from database
+        try:
+            conn = sqlite3.connect('documents.db')
+            c = conn.cursor()
+            c.execute('DELETE FROM documents WHERE agent_id = ?', (agent_id,))
+            c.execute('DELETE FROM agents WHERE agent_id = ?', (agent_id,))
+            conn.commit()
+            conn.close()
+            print("Deleted agent and documents from database")
+        except Exception as e:
+            print(f"Error deleting from database: {str(e)}")
+            return jsonify({'error': f'Error deleting from database: {str(e)}'}), 500
+            
+        return jsonify({'message': 'Agent deleted successfully'})
+        
+    except Exception as e:
+        print(f"Error deleting agent: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
