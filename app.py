@@ -8,6 +8,7 @@ from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain.chains import ConversationalRetrievalChain
 from langchain.memory import ConversationBufferMemory
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_community.vectorstores import Chroma
 import pandas as pd
 import json
 from dotenv import load_dotenv
@@ -20,7 +21,6 @@ import time
 import gc
 from llama_cloud_services import LlamaParse
 from llama_index.core import SimpleDirectoryReader
-from langchain.vectorstores import Chroma, FAISS
 from langchain.prompts import PromptTemplate
 from urllib.parse import urlparse
 import requests
@@ -31,7 +31,9 @@ from config import (
     EMBEDDING_MODEL,
     CHUNK_SIZE,
     CHUNK_OVERLAP,
-    RETRIEVER_K
+    RETRIEVER_K,
+    INDEX_PERSIST_DIRECTORY,
+    COLLECTION_NAME
 )
 from utils import save_chat_history, load_chat_history, format_chat_message
 
@@ -45,6 +47,7 @@ ALLOWED_EXTENSIONS = {'pdf', 'docx', 'xlsx', 'csv'}
 
 # Ensure upload directory exists
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+os.makedirs(INDEX_PERSIST_DIRECTORY, exist_ok=True)
 
 # Initialize Gemini
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
@@ -80,14 +83,28 @@ memory = ConversationBufferMemory(
     output_key="answer"
 )
 
-# Create a dummy vector store for initial retriever
-dummy_docs = [Document(page_content="Dummy document", metadata={"source": "dummy"})]
-dummy_vector_store = FAISS.from_documents(dummy_docs, embeddings)
+# Initialize Chroma vector store
+try:
+    vector_store = Chroma(
+        collection_name=COLLECTION_NAME,
+        embedding_function=embeddings,
+        persist_directory=INDEX_PERSIST_DIRECTORY
+    )
+except Exception as e:
+    print(f"Error loading existing Chroma store: {str(e)}")
+    # Create a new store if loading fails
+    dummy_docs = [Document(page_content="Dummy document", metadata={"source": "dummy"})]
+    vector_store = Chroma.from_documents(
+        documents=dummy_docs,
+        embedding=embeddings,
+        collection_name=COLLECTION_NAME,
+        persist_directory=INDEX_PERSIST_DIRECTORY
+    )
 
-# Initialize conversation chain with dummy retriever
+# Initialize conversation chain with retriever
 conversation_chain = ConversationalRetrievalChain.from_llm(
     llm=llm,
-    retriever=dummy_vector_store.as_retriever(search_kwargs={"k": RETRIEVER_K}),
+    retriever=vector_store.as_retriever(search_kwargs={"k": RETRIEVER_K}),
     memory=memory,
     return_source_documents=True,
     verbose=True,
@@ -157,11 +174,12 @@ def process_document(file_path, doc_id):
         'chunk_count': len(splits)
     }
 
-    # Create or update vector store
-    if vector_store is None:
-        vector_store = FAISS.from_documents(splits, embeddings)
-    else:
+    # Add documents to Chroma store
+    try:
         vector_store.add_documents(splits)
+        vector_store.persist()
+    except Exception as e:
+        raise RuntimeError(f"Failed to add documents to Chroma store: {str(e)}")
 
     # Update conversation chain with new retriever
     conversation_chain.retriever = vector_store.as_retriever(
@@ -221,14 +239,12 @@ def process_url(url):
             'url': url
         }
 
-        # Create or update vector store
+        # Add documents to Chroma store
         try:
-            if vector_store is None:
-                vector_store = FAISS.from_documents(splits, embeddings)
-            else:
-                vector_store.add_documents(splits)
+            vector_store.add_documents(splits)
+            vector_store.persist()
         except Exception as e:
-            raise RuntimeError(f"Failed to create/update vector store: {str(e)}")
+            raise RuntimeError(f"Failed to add documents to Chroma store: {str(e)}")
 
         # Update conversation chain with new retriever
         try:
@@ -353,18 +369,29 @@ def delete_document():
                 all_chunks = []
                 for doc_info in documents.values():
                     all_chunks.extend(doc_info['chunks'])
-                vector_store = FAISS.from_documents(all_chunks, embeddings)
+                vector_store = Chroma.from_documents(
+                    documents=all_chunks,
+                    embedding=embeddings,
+                    collection_name=COLLECTION_NAME,
+                    persist_directory=INDEX_PERSIST_DIRECTORY
+                )
+                vector_store.persist()
                 conversation_chain.retriever = vector_store.as_retriever(
                     search_kwargs={"k": RETRIEVER_K}
                 )
             else:
                 # If no documents left, reset to dummy store
                 dummy_docs = [Document(page_content="Dummy document", metadata={"source": "dummy"})]
-                dummy_vector_store = FAISS.from_documents(dummy_docs, embeddings)
-                conversation_chain.retriever = dummy_vector_store.as_retriever(
+                vector_store = Chroma.from_documents(
+                    documents=dummy_docs,
+                    embedding=embeddings,
+                    collection_name=COLLECTION_NAME,
+                    persist_directory=INDEX_PERSIST_DIRECTORY
+                )
+                vector_store.persist()
+                conversation_chain.retriever = vector_store.as_retriever(
                     search_kwargs={"k": RETRIEVER_K}
                 )
-                vector_store = None
 
             return jsonify({'message': 'Document deleted successfully'})
         else:

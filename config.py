@@ -19,6 +19,10 @@ CHUNK_OVERLAP = 200
 # Retrieval Configuration
 RETRIEVER_K = 4  # Number of documents to retrieve for each query
 
+# Chroma Configuration
+INDEX_PERSIST_DIRECTORY = "chroma_db"
+COLLECTION_NAME = "document_store"
+
 class Config:
     SECRET_KEY = os.getenv('SECRET_KEY', 'your-secret-key-here')
     UPLOAD_FOLDER = 'uploads'
