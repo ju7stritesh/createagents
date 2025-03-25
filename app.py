@@ -174,10 +174,12 @@ def process_document(file_path, doc_id):
         'chunk_count': len(splits)
     }
 
-    # Add documents to Chroma store
+    # Add documents to Chroma store and get their IDs
     try:
-        vector_store.add_documents(splits)
+        ids = vector_store.add_documents(splits)
         vector_store.persist()
+        # Store the ChromaDB IDs for this document
+        documents[doc_id]['chroma_ids'] = ids
     except Exception as e:
         raise RuntimeError(f"Failed to add documents to Chroma store: {str(e)}")
 
@@ -239,10 +241,12 @@ def process_url(url):
             'url': url
         }
 
-        # Add documents to Chroma store
+        # Add documents to Chroma store and get their IDs
         try:
-            vector_store.add_documents(splits)
+            ids = vector_store.add_documents(splits)
             vector_store.persist()
+            # Store the ChromaDB IDs for this document
+            documents[doc_id]['chroma_ids'] = ids
         except Exception as e:
             raise RuntimeError(f"Failed to add documents to Chroma store: {str(e)}")
 
@@ -361,26 +365,23 @@ def delete_document():
         doc_id = data.get('document_id')
 
         if doc_id and doc_id in documents:
+            # Get the ChromaDB IDs for this document
+            chroma_ids = documents[doc_id].get('chroma_ids', [])
+            
+            # Delete document chunks from ChromaDB
+            try:
+                if chroma_ids:
+                    print(f"Deleting ChromaDB IDs for document {doc_id}: {chroma_ids}")
+                    vector_store.delete(ids=chroma_ids)
+                    vector_store.persist()
+            except Exception as e:
+                print(f"Error deleting from ChromaDB: {str(e)}")
+
             # Remove document from documents dictionary
             del documents[doc_id]
 
-            # Recreate vector store with remaining documents
-            if documents:
-                all_chunks = []
-                for doc_info in documents.values():
-                    all_chunks.extend(doc_info['chunks'])
-                vector_store = Chroma.from_documents(
-                    documents=all_chunks,
-                    embedding=embeddings,
-                    collection_name=COLLECTION_NAME,
-                    persist_directory=INDEX_PERSIST_DIRECTORY
-                )
-                vector_store.persist()
-                conversation_chain.retriever = vector_store.as_retriever(
-                    search_kwargs={"k": RETRIEVER_K}
-                )
-            else:
-                # If no documents left, reset to dummy store
+            # If no documents left, reset to dummy store
+            if not documents:
                 dummy_docs = [Document(page_content="Dummy document", metadata={"source": "dummy"})]
                 vector_store = Chroma.from_documents(
                     documents=dummy_docs,
