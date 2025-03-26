@@ -26,6 +26,8 @@ chroma_db/
 venv/
 ENV/
 *.env
+documents
+uploads/
 
 # IDE
 .idea/
