@@ -7,62 +7,155 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" rel="stylesheet">
     <style>
+        :root {
+            --primary-blue: #4A7CF6;
+            --secondary-blue: #6495ED;
+            --bg-dark: #1E2337;
+            --bg-card: #252B43;
+            --text-light: #E8F1FF;
+            --text-lighter: #FFFFFF;
+            --text-muted: #A8B3CF;
+            --border-color: rgba(74, 124, 246, 0.2);
+            --gradient-blue: linear-gradient(135deg, #4A7CF6 0%, #63B3ED 100%);
+            --gradient-bg: linear-gradient(135deg, #252B43 0%, #2A3352 100%);
+            --danger-red: #FFFFFF;
+            --danger-dark: #E8E8E8;
+            --gradient-red: linear-gradient(135deg, #FFFFFF 0%, #E8E8E8 100%);
+        }
+
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #f8f9fa;
+            background-color: var(--bg-dark);
             min-height: 100vh;
             display: flex;
             flex-direction: column;
+            color: var(--text-light);
         }
+
         .main-content {
             flex: 1;
             padding: 20px;
             overflow-y: auto;
         }
+
         .chat-container {
-            height: calc(100vh - 200px);
+            height: calc(100vh - 600px);
             overflow-y: auto;
             padding: 20px;
-            background-color: white;
-            border-radius: 10px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            background-color: var(--gradient-bg);
+            border-radius: 15px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
         }
+
+        .chat-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .chat-controls {
+            display: flex;
+            gap: 10px;
+        }
+
+        .pop-out-btn {
+            background: none;
+            border: none;
+            color: var(--primary-blue);
+            cursor: pointer;
+            padding: 5px;
+            transition: all 0.3s ease;
+        }
+
+        .pop-out-btn:hover {
+            transform: scale(1.1);
+            color: var(--secondary-blue);
+        }
+
+        .maximized-chat {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: var(--bg-dark);
+            z-index: 1000;
+            display: none;
+            flex-direction: column;
+        }
+
+        .maximized-chat.active {
+            display: flex;
+        }
+
+        .maximized-chat .chat-container {
+            height: calc(100vh - 100px);
+            margin: 0;
+            border-radius: 0;
+        }
+
+        .maximized-chat .chat-header {
+            padding: 15px;
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .maximized-chat .chat-input-container {
+            padding: 15px;
+            background: var(--bg-card);
+            border-top: 1px solid var(--border-color);
+        }
+
         .message {
             margin-bottom: 15px;
-            padding: 10px;
-            border-radius: 10px;
+            padding: 15px;
+            border-radius: 15px;
             max-width: 80%;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+            color: var(--text-light);
         }
+
         .user-message {
-            background-color: #007bff;
-            color: white;
+            background: var(--gradient-blue);
             margin-left: auto;
+            color: var(--text-lighter);
         }
+
         .assistant-message {
-            background-color: #e9ecef;
-            color: #212529;
+            background: var(--bg-card);
+            color: var(--text-light);
         }
+
         .document-item {
-            background-color: #495057;
-            margin-bottom: 10px;
-            padding: 10px;
-            border-radius: 5px;
-            cursor: pointer;
+            background: var(--bg-dark);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 15px;
+            margin: 10px 0;
+            color: var(--text-light);
+            transition: all 0.3s ease;
         }
+
         .document-item:hover {
-            background-color: #6c757d;
+            border-color: var(--primary-blue);
+            transform: translateX(5px);
         }
+
         .source {
-            background-color: #f8f9fa;
-            padding: 10px;
+            background-color: var(--bg-card);
+            padding: 12px;
             margin-top: 10px;
-            border-radius: 5px;
+            border-radius: 10px;
             font-size: 0.9em;
         }
+
         .source-text {
             margin-top: 5px;
-            color: #6c757d;
+            color: var(--text-muted);
         }
+
         .loading-overlay {
             position: fixed;
             top: 0;
@@ -74,102 +167,243 @@
             justify-content: center;
             align-items: center;
             z-index: 1000;
+            backdrop-filter: blur(5px);
         }
         
         .loading-content {
-            background-color: white;
-            padding: 20px;
-            border-radius: 10px;
+            background-color: var(--bg-card);
+            padding: 30px;
+            border-radius: 15px;
             text-align: center;
             max-width: 300px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         }
         
         .loading-spinner {
             width: 3rem;
             height: 3rem;
             margin-bottom: 1rem;
+            color: var(--primary-blue);
         }
         
         .loading-message {
-            color: #333;
-            margin-bottom: 0;
+            color: var(--text-lighter);
+            font-weight: 500;
         }
-        
-        .progress {
-            height: 0.5rem;
-            margin-top: 0.5rem;
-        }
+
         .agent-creation-container {
             display: flex;
             justify-content: center;
             align-items: center;
             min-height: 100vh;
             padding: 20px;
+            background: var(--bg-dark);
         }
+
         .agent-creation-card {
-            max-width: 500px;
+            max-width: 800px;
             width: 100%;
+            background: var(--bg-card);
+            border-radius: 20px;
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
+            padding: 30px;
         }
+
         .sidebar {
             height: 100vh;
-            background-color: #f8f9fa;  /* Light background */
-            color: #212529;  /* Dark text */
+            background-color: var(--bg-card);
+            color: var(--text-light);
             padding: 20px;
             overflow-y: auto;
+            border-right: 1px solid var(--border-color);
         }
-        .sidebar h4 {
-            color: #212529;  /* Dark text for headings */
-        }
-        .chunk-list {
-            margin-left: 15px;
-            font-size: 0.9em;
-        }
-        .chunk-item {
-            background-color: #212529;
-            margin: 5px 0;
-            padding: 5px 10px;
-            border-radius: 3px;
-        }
+
         .agent-card {
-            background-color: #f8f9fa;
-            border: 1px solid #dee2e6;
-            border-radius: 5px;
-            margin-bottom: 10px;
-            padding: 10px;
+            background: var(--gradient-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 15px;
+            margin-bottom: 15px;
+            padding: 20px;
+            transition: all 0.3s ease;
         }
+
         .agent-card:hover {
-            background-color: #e9ecef;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 16px rgba(74, 124, 246, 0.15);
+            border-color: var(--primary-blue);
         }
-        .agent-documents {
-            margin-left: 20px;
-            font-size: 0.9em;
-        }
-        .document-item {
-            background-color: #e9ecef;
-            margin: 5px 0;
-            padding: 5px 10px;
-            border-radius: 3px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .document-item:hover {
-            background-color: #dee2e6;
-        }
+
         .agent-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 10px;
+            cursor: pointer;
         }
+
+        .agent-header-left {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
         .agent-name {
-            font-weight: bold;
-            color: #495057;
+            font-weight: 600;
+            font-size: 1.1rem;
+            color: var(--text-lighter);
         }
+
         .document-count {
-            color: #6c757d;
-            font-size: 0.9em;
+            color: var(--text-muted);
+            font-size: 0.9rem;
         }
+
+        .agent-arrow {
+            color: var(--primary-blue);
+            transition: transform 0.3s ease;
+            font-size: 1.2rem;
+        }
+
+        .agent-arrow.expanded {
+            transform: rotate(90deg);
+        }
+
+        .agent-documents {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease-out;
+            margin-top: 10px;
+        }
+
+        .agent-documents.expanded {
+            max-height: 500px;
+        }
+
+        .document-item i {
+            color: var(--primary-blue);
+        }
+
+        .document-item small {
+            color: var(--text-muted);
+        }
+
+        .btn {
+            border: none;
+            padding: 10px 20px;
+            border-radius: 10px;
+            transition: all 0.3s ease;
+            color: var(--text-lighter);
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+        }
+
+        .btn-primary {
+            background: var(--gradient-blue);
+            box-shadow: 0 2px 4px rgba(74, 124, 246, 0.2);
+        }
+
+        .btn-primary:hover {
+            box-shadow: 0 4px 12px rgba(74, 124, 246, 0.3);
+        }
+
+        .btn-danger {
+            background: var(--gradient-red);
+            box-shadow: 0 2px 4px rgba(255, 255, 255, 0.2);
+            color: #666;
+        }
+
+        .btn-danger:hover {
+            box-shadow: 0 4px 12px rgba(255, 255, 255, 0.3);
+            color: #444;
+        }
+
+        .btn-danger i {
+            color: var(--primary-blue);
+        }
+
+        .btn-warning {
+            background: linear-gradient(135deg, #FFB302 0%, #F29100 100%);
+            box-shadow: 0 2px 4px rgba(255, 179, 2, 0.2);
+        }
+
+        .btn-warning:hover {
+            box-shadow: 0 4px 12px rgba(255, 179, 2, 0.3);
+        }
+
+        .btn-info {
+            background: linear-gradient(135deg, #0DCAF0 0%, #0B96B4 100%);
+            box-shadow: 0 2px 4px rgba(13, 202, 240, 0.2);
+        }
+
+        .btn-info:hover {
+            box-shadow: 0 4px 12px rgba(13, 202, 240, 0.3);
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, #29CB97 0%, #22A37C 100%);
+            box-shadow: 0 2px 4px rgba(41, 203, 151, 0.2);
+        }
+
+        .btn-success:hover {
+            box-shadow: 0 4px 12px rgba(41, 203, 151, 0.3);
+        }
+
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 0.875rem;
+        }
+
+        .delete-document {
+            background: none;
+            border: none;
+            color: var(--danger-red);
+            cursor: pointer;
+            padding: 5px;
+            transition: all 0.3s ease;
+        }
+
+        .delete-document:hover {
+            color: var(--danger-dark);
+            transform: scale(1.1);
+        }
+
+        .form-control {
+            background: var(--bg-dark);
+            border: 1px solid var(--border-color);
+            color: var(--text-light);
+        }
+
+        .form-control:focus {
+            background: var(--bg-dark);
+            border-color: var(--primary-blue);
+            color: var(--text-light);
+            box-shadow: 0 0 0 2px rgba(74, 124, 246, 0.2);
+        }
+
+        .form-control::placeholder {
+            color: var(--text-muted);
+        }
+
+        .input-group .btn {
+            border-radius: 25px;
+            padding: 10px 20px;
+        }
+
+        .input-group .form-control {
+            border-radius: 25px;
+        }
+
+        .input-group .form-control:first-child {
+            border-top-right-radius: 0;
+            border-bottom-right-radius: 0;
+        }
+
+        .input-group .form-control:last-child {
+            border-top-left-radius: 0;
+            border-bottom-left-radius: 0;
+        }
+
         .document-list {
             list-style: none;
             padding: 0;
@@ -177,62 +411,130 @@
             max-height: 300px;
             overflow-y: auto;
         }
+
         .document-list li {
-            padding: 8px 12px;
-            margin: 4px 0;
-            background-color: #ffffff;  /* White background */
-            border: 1px solid #dee2e6;
-            border-radius: 4px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            color: #212529;  /* Dark text */
+            padding: 12px 15px;
+            margin: 8px 0;
+            background-color: var(--bg-card);
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+            transition: all 0.3s ease;
         }
+
         .document-list li:hover {
-            background-color: #e9ecef;
             transform: translateX(5px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
         }
-        .document-list li.active {
-            background-color: #e3f2fd;
-            border-color: #90caf9;
-        }
+
         .document-list .document-name {
-            flex-grow: 1;
-            margin-right: 10px;
-            color: #212529;  /* Dark text */
+            background: var(--gradient-text);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            color: transparent;
+            display: inline-block;
+            font-weight: 500;
         }
-        .document-list .document-actions {
-            display: flex;
-            gap: 8px;
-        }
-        .document-list .btn {
-            padding: 2px 6px;
-            font-size: 0.8rem;
-        }
-        .document-list .btn i {
-            font-size: 0.8rem;
-        }
+
         .document-list .chunk-count {
+            color: var(--text-muted);
             font-size: 0.8rem;
-            color: #6c757d;
-            margin-left: 8px;
         }
-        .document-list .document-info {
+
+        .document-info {
             display: flex;
             align-items: center;
-            color: #212529;  /* Dark text */
+            gap: 10px;
         }
-        .document-list .document-info i {
-            margin-right: 6px;
-            color: #6c757d;
+
+        .document-info i {
+            color: var(--primary-blue);
         }
-        .document-list .document-info span {
-            color: #212529;  /* Dark text */
+
+        .card {
+            background: var(--gradient-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 20px;
         }
-        .document-list .document-info small {
-            color: #6c757d;
+
+        .card-header {
+            background: transparent;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .card-header h4 {
+            color: var(--text-lighter);
+            font-weight: 600;
+            margin: 0;
+        }
+
+        .document-list .document-name {
+            background: var(--gradient-text);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            color: transparent;
+            display: inline-block;
+            font-weight: 500;
+        }
+
+        .loading-message {
+            background: var(--gradient-text);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            color: transparent;
+            display: inline-block;
+            font-weight: 500;
+        }
+
+        .file-upload-container {
+            position: relative;
+            border: 2px dashed var(--border-color);
+            border-radius: 15px;
+            padding: 20px;
+            text-align: center;
+            background: var(--bg-card);
+            transition: all 0.3s ease;
+            cursor: pointer;
+            margin-bottom: 15px;
+        }
+
+        .file-upload-container:hover {
+            border-color: var(--primary-blue);
+            background: var(--gradient-bg);
+        }
+
+        .file-upload-container i {
+            font-size: 2rem;
+            color: var(--primary-blue);
+            margin-bottom: 10px;
+        }
+
+        .file-upload-container p {
+            color: var(--text-muted);
+            margin: 0;
+        }
+
+        .file-upload-container input[type="file"] {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            top: 0;
+            left: 0;
+            opacity: 0;
+            cursor: pointer;
+        }
+
+        .file-name {
+            margin-top: 10px;
+            color: var(--text-light);
+            font-size: 0.9rem;
+        }
+
+        .file-upload-container.dragover {
+            border-color: var(--primary-blue);
+            background: var(--gradient-bg);
         }
     </style>
 </head>
@@ -256,7 +558,7 @@
             <!-- Existing Agents List -->
             <div class="card mb-4">
                 <div class="card-header">
-                    <h4 class="mb-0">Existing Agents</h4>
+                    <h4 class="mb-0">My Agents</h4>
                 </div>
                 <div class="card-body">
                     <div id="existingAgentsList" class="list-group">
@@ -286,77 +588,104 @@
 
     <!-- Document Flow Section (Initially Hidden) -->
     <div id="documentFlowSection" class="d-none">
-        <div class="container-fluid">
-            <div class="row">
-                <!-- Sidebar -->
-                <div class="col-md-3 sidebar">
-                    <h4 class="mb-4">Documents</h4>
-                    <div class="document-list">
-                        <!-- Documents will be listed here -->
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar -->
+            <div class="col-md-3 sidebar">
+                <h4 class="mb-4">Documents</h4>
+                <div class="document-list">
+                    <!-- Documents will be listed here -->
+                </div>
+            </div>
+            
+            <!-- Main Content -->
+            <div class="col-md-9 main-content">
+                <div class="row mb-4">
+                    <div class="col">
+                        <h2>Software Flow</h2>
+                    </div>
+                    <div class="col-auto">
+                        <a href="/" class="btn btn-info me-2">
+                            <i class="fas fa-home"></i> Back to Home
+                        </a>
+                        <button class="btn btn-warning me-2" onclick="clearChat()">
+                            <i class="fas fa-eraser"></i> Clear Chat
+                        </button>
+                        <button class="btn btn-danger" onclick="deleteAllDocuments()">
+                            <i class="fas fa-trash"></i> Delete All
+                        </button>
                     </div>
                 </div>
                 
-                <!-- Main Content -->
-                <div class="col-md-9 main-content">
-                    <div class="row mb-4">
-                        <div class="col">
-                            <h2>Software Flow</h2>
-                        </div>
-                        <div class="col-auto">
-                            <a href="/" class="btn btn-info me-2">
-                                <i class="fas fa-home"></i> Back to Home
-                            </a>
-                            <button class="btn btn-warning me-2" onclick="clearChat()">
-                                <i class="fas fa-eraser"></i> Clear Chat
-                            </button>
-                            <button class="btn btn-danger" onclick="deleteAllDocuments()">
-                                <i class="fas fa-trash"></i> Delete All
-                            </button>
-                        </div>
+                <!-- File Upload -->
+                <div class="card mb-4">
+                    <div class="card-body">
+                        <h5 class="card-title">Upload Document or Enter URL</h5>
+                        <form id="uploadForm" class="mb-3">
+                            <div class="file-upload-container" id="fileUploadContainer">
+                                <i class="fas fa-cloud-upload-alt"></i>
+                                <p>Drag and drop your file here or click to browse</p>
+                                <input type="file" id="fileInput" accept=".pdf,.docx,.xlsx,.csv">
+                                <div class="file-name" id="fileName"></div>
+                            </div>
+                            <div class="input-group">
+                                <input type="url" class="form-control" id="urlInput" placeholder="Enter website URL">
+                                <button class="btn btn-success" type="button" onclick="processUrl()">
+                                    <i class="fas fa-globe"></i> Process URL
+                                </button>
+                            </div>
+                        </form>
                     </div>
-                    
-                    <!-- File Upload -->
-                    <div class="card mb-4">
-                        <div class="card-body">
-                            <h5 class="card-title">Upload Document or Enter URL</h5>
-                            <form id="uploadForm" class="mb-3">
-                                <div class="input-group mb-3">
-                                    <input type="file" class="form-control" id="fileInput" accept=".pdf,.docx,.xlsx,.csv">
-                                    <button class="btn btn-primary" type="submit">
-                                        <i class="fas fa-upload"></i> Upload File
-                                    </button>
-                                </div>
-                                <div class="input-group">
-                                    <input type="url" class="form-control" id="urlInput" placeholder="Enter website URL">
-                                    <button class="btn btn-success" type="button" onclick="processUrl()">
-                                        <i class="fas fa-globe"></i> Process URL
-                                    </button>
-                                </div>
-                            </form>
-                        </div>
-                    </div>
-                    
-                    <!-- Chat Interface -->
-                    <div class="card">
-                        <div class="card-header d-flex justify-content-between align-items-center">
-                            <div class="d-flex justify-content-between align-items-center mb-4">
-                                <h4 id="agentTitle" class="mb-0">Document Assistant</h4>
+                </div>
+                
+                <!-- Chat Interface -->
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <div class="d-flex justify-content-between align-items-center mb-4">
+                            <h4 id="agentTitle" class="mb-0">Document Assistant</h4>
+                            <div class="chat-controls">
+                                <button class="pop-out-btn" onclick="toggleMaximizedChat()">
+                                    <i class="fas fa-expand"></i>
+                            </button>
                             </div>
                         </div>
-                        <div class="card-body">
-                            <div id="chatContainer" class="chat-container"></div>
-                            <form id="chatForm" class="mt-3">
-                                <div class="input-group">
-                                    <input type="text" class="form-control" id="questionInput" placeholder="Ask a question...">
-                                    <button class="btn btn-primary" type="submit">
-                                        <i class="fas fa-paper-plane"></i> Send
-                                    </button>
-                                </div>
-                            </form>
-                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div id="chatContainer" class="chat-container"></div>
+                        <form id="chatForm" class="mt-3">
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="questionInput" placeholder="Ask a question...">
+                                <button class="btn btn-primary" type="submit">
+                                    <i class="fas fa-paper-plane"></i> Send
+                                </button>
+                            </div>
+                        </form>
                     </div>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- Maximized Chat Window -->
+    <div id="maximizedChat" class="maximized-chat">
+        <div class="chat-header">
+            <h4 id="maximizedAgentTitle" class="mb-0">Document Assistant</h4>
+            <div class="chat-controls">
+                <button class="pop-out-btn" onclick="toggleMaximizedChat()">
+                    <i class="fas fa-compress"></i>
+                </button>
+            </div>
+        </div>
+        <div id="maximizedChatContainer" class="chat-container"></div>
+        <div class="chat-input-container">
+            <form id="maximizedChatForm">
+                <div class="input-group">
+                    <input type="text" class="form-control" id="maximizedQuestionInput" placeholder="Ask a question...">
+                    <button class="btn btn-primary" type="submit">
+                        <i class="fas fa-paper-plane"></i> Send
+                    </button>
+                </div>
+            </form>
         </div>
     </div>
 
@@ -413,6 +742,57 @@
 
             // Load existing agents
             loadExistingAgents();
+
+            // File upload UI handling
+            const fileUploadContainer = document.getElementById('fileUploadContainer');
+            const fileInput = document.getElementById('fileInput');
+            const fileName = document.getElementById('fileName');
+
+            if (fileUploadContainer && fileInput && fileName) {
+                // Handle file selection
+                fileInput.addEventListener('change', function() {
+                    if (this.files.length > 0) {
+                        fileName.textContent = this.files[0].name;
+                        fileUploadContainer.style.borderColor = 'var(--primary-blue)';
+                    } else {
+                        fileName.textContent = '';
+                        fileUploadContainer.style.borderColor = 'var(--border-color)';
+                    }
+                });
+
+                // Handle drag and drop
+                fileUploadContainer.addEventListener('dragover', function(e) {
+                    e.preventDefault();
+                    this.classList.add('dragover');
+                });
+
+                fileUploadContainer.addEventListener('dragleave', function() {
+                    this.classList.remove('dragover');
+                });
+
+                fileUploadContainer.addEventListener('drop', function(e) {
+                    e.preventDefault();
+                    this.classList.remove('dragover');
+                    const files = e.dataTransfer.files;
+                    if (files.length > 0) {
+                        fileInput.files = files;
+                        fileName.textContent = files[0].name;
+                        fileUploadContainer.style.borderColor = 'var(--primary-blue)';
+                    }
+                });
+            }
+
+            // Initialize maximized chat form
+            const maximizedChatForm = document.getElementById('maximizedChatForm');
+            if (maximizedChatForm) {
+                maximizedChatForm.addEventListener('submit', function(event) {
+                    event.preventDefault();
+                    const question = document.getElementById('maximizedQuestionInput').value.trim();
+                    if (question) {
+                        handleChatSubmit(event, question, 'maximized');
+                    }
+                });
+            }
         });
 
         // Function to load existing agents
@@ -427,7 +807,7 @@
                     hideLoading();
                     return;
                 }
-
+                
                 const agentsList = document.getElementById('existingAgentsList');
                 if (!agentsList) {
                     hideLoading();
@@ -443,16 +823,17 @@
                         const agentElement = document.createElement('div');
                         agentElement.className = 'agent-card';
                         agentElement.innerHTML = `
-                            <div class="agent-header">
-                                <div>
+                            <div class="agent-header" onclick="toggleAgentDocuments(this)">
+                                <div class="agent-header-left">
+                                    <i class="fas fa-chevron-right agent-arrow"></i>
                                     <span class="agent-name">${agent.name}</span>
-                                    <span class="document-count ms-2">(${agent.document_count} documents)</span>
+                                    <span class="document-count">(${agent.document_count} documents)</span>
                                 </div>
                                 <div class="btn-group">
-                                    <button class="btn btn-sm btn-primary" onclick="switchAgent('${agent.agent_id}', '${agent.name}')">
+                                    <button class="btn btn-sm btn-primary" onclick="event.stopPropagation(); switchAgent('${agent.agent_id}', '${agent.name}')">
                                         <i class="fas fa-exchange-alt"></i> Switch
                                     </button>
-                                    <button class="btn btn-sm btn-danger" onclick="deleteAgent('${agent.agent_id}', '${agent.name}')">
+                                    <button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); deleteAgent('${agent.agent_id}', '${agent.name}')">
                                         <i class="fas fa-trash"></i>
                                     </button>
                                 </div>
@@ -460,11 +841,9 @@
                             <div class="agent-documents">
                                 ${agent.documents.map(doc => `
                                     <div class="document-item">
-                                        <div>
-                                            <i class="fas fa-file-alt me-2"></i>
-                                            <span>${doc.filename}</span>
-                                            <small class="text-muted ms-2">(${doc.chunk_count} chunks)</small>
-                                        </div>
+                                        <i class="fas fa-file-alt"></i>
+                                        <span>${doc.filename}</span>
+                                        <small>(${doc.chunk_count} chunks)</small>
                                     </div>
                                 `).join('')}
                             </div>
@@ -491,7 +870,7 @@
                     },
                     body: JSON.stringify({ agent_id: agentId })
                 });
-
+                
                 const data = await response.json();
 
                 if (data.error) {
@@ -499,7 +878,7 @@
                     alert('Error switching agent: ' + data.error);
                     return;
                 }
-
+                
                 // Store agent information
                 currentAgentId = data.agent_id;
                 currentAgentName = data.name;
@@ -576,7 +955,7 @@
                     hideLoading();
                     return;
                 }
-
+                
                 const documentList = document.querySelector('.document-list');
                 if (!documentList) {
                     hideLoading();
@@ -584,27 +963,27 @@
                 }
 
                 documentList.innerHTML = '';
-
+                
                 if (data.length === 0) {
                     documentList.innerHTML = '<div class="text-muted">No documents found</div>';
                 } else {
                     data.forEach(doc => {
-                        const docElement = document.createElement('div');
-                        docElement.className = 'document-item';
-                        docElement.innerHTML = `
-                            <div class="d-flex justify-content-between align-items-center">
-                                <div>
+                    const docElement = document.createElement('div');
+                    docElement.className = 'document-item';
+                    docElement.innerHTML = `
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
                                     <i class="fas fa-file-alt me-2"></i>
-                                    <span>${doc.filename}</span>
-                                    <small class="text-muted ms-2">(${doc.chunk_count} chunks)</small>
-                                </div>
-                                <button class="btn btn-sm btn-danger" onclick="deleteDocument('${doc.document_id}')">
-                                    <i class="fas fa-trash"></i>
-                                </button>
+                                <span>${doc.filename}</span>
+                                <small class="text-muted ms-2">(${doc.chunk_count} chunks)</small>
                             </div>
-                        `;
-                        documentList.appendChild(docElement);
-                    });
+                            <button class="btn btn-sm btn-danger" onclick="deleteDocument('${doc.document_id}')">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    `;
+                    documentList.appendChild(docElement);
+                });
                 }
 
                 hideLoading();
@@ -634,7 +1013,7 @@
                     },
                     body: JSON.stringify({ name: agentName })
                 });
-
+                
                 const data = await response.json();
 
                 if (data.error) {
@@ -642,7 +1021,7 @@
                     alert('Error creating agent: ' + data.error);
                     return;
                 }
-
+                
                 // Store agent information
                 currentAgentId = data.agent_id;
                 currentAgentName = data.name;
@@ -663,7 +1042,7 @@
 
                 // Load any existing documents for this agent
                 await loadDocuments();
-
+                
             } catch (error) {
                 console.error('Error creating agent:', error);
                 hideLoading();
@@ -739,7 +1118,7 @@
                     alert(result.error);
                     return;
                 }
-
+                
                 // Add document to the list
                 const documentList = document.querySelector('.document-list');
                 const documentItem = document.createElement('div');
@@ -754,7 +1133,7 @@
                     </button>
                 `;
                 documentList.appendChild(documentItem);
-
+                
                 // Show success message
                 alert('Document uploaded successfully!');
                 
@@ -768,7 +1147,7 @@
                 loadingOverlay.style.display = 'none';
             }
         }
-
+        
         // Function to handle URL processing
         async function handleUrlSubmit(event) {
             event.preventDefault();
@@ -779,13 +1158,13 @@
                 alert('Please enter a URL');
                 return;
             }
-
+            
             // Show loading overlay with training message
             const loadingOverlay = document.getElementById('loadingOverlay');
             const loadingMessage = document.getElementById('loadingMessage');
             loadingMessage.textContent = 'Training your agent...';
             loadingOverlay.style.display = 'flex';
-
+            
             try {
                 const response = await fetch('/process_url', {
                     method: 'POST',
@@ -796,18 +1175,18 @@
                 });
 
                 const data = await response.json();
-
+                
                 if (data.error) {
                     alert('Error processing URL: ' + data.error);
                     return;
                 }
-
+                
                 // Reload documents after successful URL processing
                 await loadDocuments();
-
+                
                 // Clear URL input
                 urlInput.value = '';
-
+                
                 // Show success message
                 alert('URL processed successfully!');
 
@@ -821,10 +1200,12 @@
         }
 
         // Function to handle chat submission
-        async function handleChatSubmit(event) {
+        async function handleChatSubmit(event, questionText = null, formType = 'regular') {
             event.preventDefault();
-            const questionInput = document.getElementById('questionInput');
-            const question = questionInput.value.trim();
+            const questionInput = formType === 'maximized' ? 
+                document.getElementById('maximizedQuestionInput') : 
+                document.getElementById('questionInput');
+            const question = questionText || questionInput.value.trim();
 
             if (!question) {
                 alert('Please enter a question');
@@ -844,14 +1225,13 @@
                 const data = await response.json();
 
                 if (data.error) {
-                    hideLoading();
+                hideLoading();
                     alert('Error getting response: ' + data.error);
                     return;
                 }
 
-                // Add question to chat
+                // Add question and response to both chat containers
                 addMessageToChat('user', question);
-                // Add response to chat
                 addMessageToChat('assistant', data.response);
 
                 // Clear question input
@@ -898,17 +1278,25 @@
 
         // Function to add a message to the chat
         function addMessageToChat(role, content) {
-            const chatContainer = document.getElementById('chatContainer');
-            const messageDiv = document.createElement('div');
-            messageDiv.className = `message ${role}-message`;
-            messageDiv.innerHTML = `
-                <div class="message-content">
-                    <strong>${role === 'user' ? 'You' : 'Assistant'}:</strong>
-                    <p>${content}</p>
-                </div>
-            `;
-            chatContainer.appendChild(messageDiv);
-            chatContainer.scrollTop = chatContainer.scrollHeight;
+            const containers = [
+                document.getElementById('chatContainer'),
+                document.getElementById('maximizedChatContainer')
+            ];
+
+            containers.forEach(container => {
+                if (container) {
+                    const messageDiv = document.createElement('div');
+                    messageDiv.className = `message ${role}-message`;
+                    messageDiv.innerHTML = `
+                        <div class="message-content">
+                            <strong>${role === 'user' ? 'You' : 'Assistant'}:</strong>
+                            <p>${content}</p>
+                        </div>
+                    `;
+                    container.appendChild(messageDiv);
+                    container.scrollTop = container.scrollHeight;
+                }
+            });
         }
 
         // Function to delete all documents
@@ -1016,6 +1404,42 @@
                 console.error('Error deleting agent:', error);
                 hideLoading();
                 alert('Error deleting agent. Please try again.');
+            }
+        }
+
+        // Add the toggle function
+        function toggleAgentDocuments(header) {
+            const documents = header.nextElementSibling;
+            const arrow = header.querySelector('.agent-arrow');
+            
+            documents.classList.toggle('expanded');
+            arrow.classList.toggle('expanded');
+        }
+
+        // Add this to your JavaScript section
+        function toggleMaximizedChat() {
+            const maximizedChat = document.getElementById('maximizedChat');
+            const regularChat = document.querySelector('.card');
+            const maximizedChatContainer = document.getElementById('maximizedChatContainer');
+            const regularChatContainer = document.getElementById('chatContainer');
+            const maximizedAgentTitle = document.getElementById('maximizedAgentTitle');
+            const regularAgentTitle = document.getElementById('agentTitle');
+            const maximizedQuestionInput = document.getElementById('maximizedQuestionInput');
+            const regularQuestionInput = document.getElementById('questionInput');
+
+            if (maximizedChat.classList.contains('active')) {
+                // Minimize
+                maximizedChat.classList.remove('active');
+                regularChat.classList.remove('d-none');
+            } else {
+                // Maximize
+                maximizedChat.classList.add('active');
+                regularChat.classList.add('d-none');
+                
+                // Copy chat content
+                maximizedChatContainer.innerHTML = regularChatContainer.innerHTML;
+                maximizedAgentTitle.textContent = regularAgentTitle.textContent;
+                maximizedQuestionInput.value = regularQuestionInput.value;
             }
         }
     </script>
