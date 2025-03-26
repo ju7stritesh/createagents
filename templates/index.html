@@ -722,6 +722,16 @@
                 });
             }
 
+            // Initialize file input
+            const fileInput = document.getElementById('fileInput');
+            if (fileInput) {
+                fileInput.addEventListener('change', function() {
+                    if (this.files.length > 0) {
+                        handleFileUpload(new Event('submit'));
+                    }
+                });
+            }
+
             // Initialize document upload form
             const uploadForm = document.getElementById('uploadForm');
             if (uploadForm) {
@@ -745,7 +755,6 @@
 
             // File upload UI handling
             const fileUploadContainer = document.getElementById('fileUploadContainer');
-            const fileInput = document.getElementById('fileInput');
             const fileName = document.getElementById('fileName');
 
             if (fileUploadContainer && fileInput && fileName) {
@@ -754,6 +763,7 @@
                     if (this.files.length > 0) {
                         fileName.textContent = this.files[0].name;
                         fileUploadContainer.style.borderColor = 'var(--primary-blue)';
+                        handleFileUpload(new Event('submit'));
                     } else {
                         fileName.textContent = '';
                         fileUploadContainer.style.borderColor = 'var(--border-color)';
@@ -778,6 +788,7 @@
                         fileInput.files = files;
                         fileName.textContent = files[0].name;
                         fileUploadContainer.style.borderColor = 'var(--primary-blue)';
+                        handleFileUpload(new Event('submit'));
                     }
                 });
             }
@@ -1100,7 +1111,7 @@
             // Show loading overlay with training message
             const loadingOverlay = document.getElementById('loadingOverlay');
             const loadingMessage = document.getElementById('loadingMessage');
-            loadingMessage.textContent = 'Training your agent...';
+            loadingMessage.textContent = 'Training Agent...';
             loadingOverlay.style.display = 'flex';
 
             const formData = new FormData();
@@ -1162,7 +1173,7 @@
             // Show loading overlay with training message
             const loadingOverlay = document.getElementById('loadingOverlay');
             const loadingMessage = document.getElementById('loadingMessage');
-            loadingMessage.textContent = 'Training your agent...';
+            loadingMessage.textContent = 'Training Agent...';
             loadingOverlay.style.display = 'flex';
             
             try {
